@@ -2,305 +2,306 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Stack 'Em</title>
+<title>Stack 'Em Multiplayer v3</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
 <style>
-    body { 
-        font-family: Arial, sans-serif; 
-        background: #0f172a; 
-        color: white; 
-        text-align: center; 
-        margin: 0; padding: 20px;
-    }
-    h1 { color: #60a5fa; margin: 10px 0; }
-    .board {
-        display: grid;
-        grid-template-columns: repeat(5, 74px);
-        gap: 6px;
-        width: 400px;
-        margin: 20px auto;
-        background: #1e2937;
-        padding: 15px;
-        border-radius: 12px;
-    }
-    .cell {
-        width: 74px;
-        height: 74px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 28px;
-        font-weight: bold;
-        border-radius: 10px;
-        cursor: pointer;
-        position: relative;
-        transition: all 0.2s;
-    }
-    .red { background: #b91c1c; color: #fee2e2; }
-    .blue { background: #1d4ed8; color: #dbeafe; }
-    .empty { background: #334155; }
-    .selected { box-shadow: 0 0 0 6px #fde047 inset; }
-    .valid { box-shadow: 0 0 0 6px #4ade80 inset; }
-    .height-label {
-        position: absolute; top: 6px; right: 8px;
-        font-size: 16px; background: rgba(0,0,0,0.5);
-        padding: 2px 6px; border-radius: 50%;
-    }
-    button { 
-        padding: 12px 24px; margin: 8px; font-size: 1.1em; 
-        background: #334155; color: white; border: none; 
-        border-radius: 8px; cursor: pointer; 
-    }
-    #log { 
-        max-width: 420px; margin: 20px auto; text-align:left; 
-        background:#1e2937; padding:12px; border-radius:8px; 
-        max-height:220px; overflow-y:auto; font-size: 0.9em;
-    }
-    .error { color: #f87171; }
+body {
+    font-family: Arial;
+    background:#0f172a;
+    color:white;
+    text-align:center;
+    margin:0;
+    padding:20px;
+}
+
+h1 { color:#60a5fa; }
+
+.board {
+    display:grid;
+    grid-template-columns:repeat(5,74px);
+    gap:6px;
+    width:400px;
+    margin:20px auto;
+    background:#1e2937;
+    padding:15px;
+    border-radius:12px;
+}
+
+.cell {
+    width:74px;
+    height:74px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:24px;
+    font-weight:bold;
+    border-radius:10px;
+    cursor:pointer;
+    position:relative;
+}
+
+.red { background:#b91c1c; }
+.blue { background:#1d4ed8; }
+.empty { background:#334155; }
+
+.height {
+    position:absolute;
+    top:6px;
+    right:8px;
+    font-size:12px;
+    background:rgba(0,0,0,0.5);
+    padding:2px 5px;
+    border-radius:6px;
+}
+
+button {
+    padding:10px 14px;
+    margin:6px;
+    border:none;
+    border-radius:8px;
+    background:#334155;
+    color:white;
+    cursor:pointer;
+}
+
+#log {
+    max-width:420px;
+    margin:auto;
+    text-align:left;
+    background:#1e2937;
+    padding:10px;
+    border-radius:8px;
+    max-height:160px;
+    overflow-y:auto;
+}
 </style>
 </head>
-<body>
-    <h1>STACK 'EM</h1>
-    <p id="room-info" style="font-size:1.2em;"></p>
-    <p id="player-info" style="font-size:1.2em;"></p>
-    <p id="status" style="font-size:1.3em;"></p>
-    
-    <div id="board" class="board"></div>
-    
-    <button onclick="newGame()">New Game</button>
-    <button onclick="copyLink()">Share Link</button>
 
-    <div id="log"></div>
+<body>
+
+<h1>STACK 'EM v3</h1>
+
+<p id="room"></p>
+<p id="player"></p>
+<p id="status"></p>
+
+<div id="board" class="board"></div>
+
+<button onclick="copyLink()">Copy Invite</button>
+
+<div id="log"></div>
 
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
 
 <script>
-// ================== FIREBASE CONFIG ==================
+
 const firebaseConfig = {
     apiKey: "AIzaSyBSHHztyiMchOW0bH-QicF10ze6yZvPoVk",
     authDomain: "stacks-77d0c.firebaseapp.com",
     databaseURL: "https://stacks-77d0c-default-rtdb.firebaseio.com",
-    projectId: "stacks-77d0c",
-    storageBucket: "stacks-77d0c.firebasestorage.app",
-    messagingSenderId: "1002747782009",
-    appId: "1:1002747782009:web:220d4ae677e5f32cff45a8"
+    projectId: "stacks-77d0c"
 };
 
-let app, db, gameRef;
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+let roomId = new URLSearchParams(location.search).get("room");
+let ref = db.ref("rooms/" + roomId);
+
 let board = [];
-let currentPlayer = 'R';
-let myPlayer = null;
-let roomCode = '';
+let turn = "R";
+let me = null;
 let selected = null;
 
-// Initialize Firebase
-function initFirebase() {
-    try {
-        app = firebase.initializeApp(firebaseConfig);
-        db = firebase.database();
-        return true;
-    } catch (e) {
-        log("Firebase init failed: " + e.message, true);
-        return false;
-    }
-}
+// ---------------- ROOM JOIN ----------------
 
-function log(msg, important = false) {
-    const logEl = document.getElementById('log');
-    const entry = document.createElement('div');
-    entry.textContent = `> ${msg}`;
-    if (important) entry.style.color = '#facc15';
-    if (msg.toLowerCase().includes('error')) entry.classList.add('error');
-    logEl.appendChild(entry);
-    logEl.scrollTop = logEl.scrollHeight;
-}
+function joinRoom() {
 
-function getRoomCode() {
-    const params = new URLSearchParams(window.location.search);
-    roomCode = params.get('room') || Math.random().toString(36).substring(2,8).toUpperCase();
-    if (!params.get('room')) window.history.replaceState({}, '', `?room=${roomCode}`);
-    document.getElementById('room-info').textContent = `Room: ${roomCode}`;
-}
-
-function newGame() {
-    document.getElementById('log').innerHTML = '';
-    getRoomCode();
-    
-    if (!initFirebase()) return;
-
-    gameRef = db.ref('games/' + roomCode);
-
-    if (!myPlayer) myPlayer = Math.random() > 0.5 ? 'R' : 'B';
-
-    const initialData = {
-        board: createInitialBoard(),
-        currentPlayer: 'R',
-        graveyards: { 'R': 0, 'B': 0 }
-    };
-
-    gameRef.set(initialData).then(() => {
-        log("🎮 Game created successfully!", true);
-        listenToGame();
-        render(); // Force initial render
-    }).catch(err => log("Error creating game: " + err.message, true));
-}
-
-function createInitialBoard() {
-    let b = Array(5).fill().map(() => Array(5).fill(null));
-    
-    let redPos = [[4,0],[4,1],[4,2],[4,3],[3,0],[3,1],[3,2],[2,1]];
-    const redHeights = [3,2,1,1,1];
-    shuffle(redPos);
-    for (let i = 0; i < 5; i++) {
-        let [r,c] = redPos[i];
-        b[r][c] = {p: 'R', h: redHeights[i % 5]};
-    }
-    
-    let bluePos = [[0,1],[0,2],[0,3],[1,0],[1,2],[1,4],[0,4]];
-    shuffle(bluePos);
-    for (let i = 0; i < 5; i++) {
-        let [r,c] = bluePos[i];
-        let h = [1,1,2,2,3][Math.floor(Math.random()*5)];
-        b[r][c] = {p: 'B', h: h};
-    }
-    return b;
-}
-
-function shuffle(arr) {
-    for (let i = arr.length-1; i > 0; i--) {
-        let j = Math.floor(Math.random() * (i+1));
-        [arr[i], arr[j]] = [arr[j], arr[i]];
-    }
-}
-
-function listenToGame() {
-    gameRef.on('value', (snapshot) => {
-        const data = snapshot.val();
-        if (!data) return;
-
-        board = data.board || board;
-        currentPlayer = data.currentPlayer || currentPlayer;
-        
-        render();
-    }, (error) => log("Listen error: " + error.message, true));
-}
-
-function render() {
-    if (!board || !board.length) return;   // 🔥 CRITICAL GUARD
-
-    const boardEl = document.getElementById('board');
-    boardEl.innerHTML = '';
-
-    for (let r = 0; r < 5; r++) {
-        for (let c = 0; c < 5; c++) {
-            const cell = document.createElement('div');
-            const stack = board[r] && board[r][c] ? board[r][c] : null;
-            
-            cell.className = `cell ${stack ? (stack.p === 'R' ? 'red' : 'blue') : 'empty'}`;
-            cell.dataset.r = r;
-            cell.dataset.c = c;
-
-            if (stack) {
-                cell.innerHTML = `${stack.p}${stack.h}<span class="height-label">${stack.h}</span>`;
-            }
-
-            cell.onclick = () => handleClick(r, c);
-            boardEl.appendChild(cell);
-        }
-    }
-
-    document.getElementById('status').innerHTML = 
-        `Current Turn: <strong style="color:${currentPlayer === 'R' ? '#fca5a5' : '#93c5fd'}">
-        ${currentPlayer === 'R' ? '🔴 RED' : '🔵 BLUE'}</strong>`;
-
-    document.getElementById('player-info').innerHTML = 
-        `You Are: <strong style="color:${myPlayer === 'R' ? '#fca5a5' : '#93c5fd'}">
-        ${myPlayer === 'R' ? '🔴 RED' : '🔵 BLUE'}</strong>`;
-}
-
-function handleClick(r, c) {
-    if (currentPlayer !== myPlayer) {
-        log("❌ Not your turn!", true);
+    if(!roomId){
+        document.body.innerHTML = "Missing room link";
         return;
     }
 
-    if (selected) {
-        attemptMove(selected.r, selected.c, r, c);
-        selected = null;
-        clearHighlights();
-    } else if (board[r][c] && board[r][c].p === myPlayer) {
-        selected = {r, c};
-        highlightValidMoves(r, c);
-    }
-}
+    ref.transaction(state => {
 
-function clearHighlights() {
-    document.querySelectorAll('.cell').forEach(cell => cell.classList.remove('selected', 'valid'));
-}
+        if(!state){
+            me = "R";
+            return {
+                board: createBoard(),
+                turn: "R",
+                players: {R:true, B:false}
+            };
+        }
 
-function highlightValidMoves(sr, sc) {
-    document.querySelectorAll('.cell').forEach(cell => {
-        const r = parseInt(cell.dataset.r);
-        const c = parseInt(cell.dataset.c);
-        if (isValidMove(sr, sc, r, c)) cell.classList.add('valid');
+        if(!state.players?.B){
+            me = "B";
+            state.players.B = true;
+        } else {
+            me = "spectator";
+        }
+
+        return state;
     });
-    const sel = document.querySelector(`.cell[data-r="${sr}"][data-c="${sc}"]`);
-    if (sel) sel.classList.add('selected');
+
+    listen();
 }
 
-function isValidMove(sr, sc, er, ec) {
-    if (sr === er && sc === ec) return false;
-    const dr = Math.abs(er - sr);
-    const dc = Math.abs(ec - sc);
-    const M = Math.max(dr, dc);
-    if (M > board[sr][sc].h) return false;
-    if (M === 1) return true;
-    return dr === 0 || dc === 0;
+// ---------------- BOARD SETUP (FIXED) ----------------
+
+function createBoard() {
+
+    let b = Array(5).fill().map(()=>Array(5).fill(null));
+
+    // FULL ACCESS SETUP (NO MIDDLE ROW RESTRICTION)
+    let reds = [
+        [4,0],[4,1],[4,2],[3,0],[3,1]
+    ];
+
+    let blues = [
+        [0,1],[0,2],[0,3],[1,0],[1,2]
+    ];
+
+    reds.forEach((p,i)=>{
+        b[p[0]][p[1]] = {p:"R", h:1+(i%3)};
+    });
+
+    blues.forEach((p,i)=>{
+        b[p[0]][p[1]] = {p:"B", h:1+(i%3)};
+    });
+
+    return b;
 }
 
-function attemptMove(sr, sc, er, ec) {
-    if (!isValidMove(sr, sc, er, ec)) return log("❌ Invalid move", true);
+// ---------------- SYNC ----------------
 
-    const attacker = board[sr][sc];
-    const M = Math.max(Math.abs(er - sr), Math.abs(ec - sc));
-    const target = board[er][ec];
+function listen() {
+    ref.on("value", snap => {
+        const data = snap.val();
+        if(!data) return;
 
-    let newBoard = JSON.parse(JSON.stringify(board));
+        board = data.board;
+        turn = data.turn;
 
-    if (target && target.p !== attacker.p && M === attacker.h) {
-        const D = target.h;
-        let revive = Math.max(0, D - M);
-        let newH = M;
-        if (revive > 0) newH += revive;   // Simplified revive
-        newBoard[er][ec] = {p: attacker.p, h: newH};
-        log(`⚔️ CAPTURE! Took ${D}.`, true);
-    } else {
-        if (target && target.p !== attacker.p) return log("❌ Cannot partial attack!", true);
-        const newH = M + (target ? target.h : 0);
-        newBoard[er][ec] = {p: attacker.p, h: newH};
-        log(`Moved ${M} coins`, true);
-    }
-
-    const remaining = attacker.h - M;
-    if (remaining > 0) newBoard[sr][sc].h = remaining;
-    else newBoard[sr][sc] = null;
-
-    gameRef.update({
-        board: newBoard,
-        currentPlayer: currentPlayer === 'R' ? 'B' : 'R'
+        render();
     });
 }
 
-function copyLink() {
-    navigator.clipboard.writeText(window.location.href);
-    alert("✅ Link copied!");
+// ---------------- MOVE RULES (FIXED DIAGONAL LOGIC) ----------------
+
+function valid(sr,sc,er,ec){
+
+    const a = board[sr][sc];
+    if(!a) return false;
+
+    const dr = Math.abs(er-sr);
+    const dc = Math.abs(ec-sc);
+
+    const M = Math.max(dr,dc);
+
+    if(M === 0) return false;
+    if(M > a.h) return false;
+
+    const isDiagonal = dr === 1 && dc === 1;
+    const isStraight = (dr === 0 || dc === 0);
+
+    // 🔥 STRICT RULE: diagonal ONLY if height = 1
+    if(isDiagonal){
+        return a.h === 1;
+    }
+
+    if(isStraight){
+        return true;
+    }
+
+    return false;
 }
 
-// START
-getRoomCode();
-initFirebase();
-newGame();
+// ---------------- MOVE ----------------
+
+function move(sr,sc,er,ec){
+
+    if(turn !== me) return;
+    if(!valid(sr,sc,er,ec)) return;
+
+    ref.transaction(state => {
+
+        if(!state) return state;
+        if(state.turn !== me) return state;
+
+        let b = state.board;
+
+        let a = b[sr][sc];
+        let t = b[er][ec];
+
+        let M = Math.max(Math.abs(er-sr), Math.abs(ec-sc));
+
+        if(t && t.p !== a.p){
+            b[er][ec] = {p:a.p, h:a.h};
+        } else {
+            b[er][ec] = {p:a.p, h:a.h + (t ? t.h : 0)};
+        }
+
+        if(a.h - M > 0) b[sr][sc].h -= M;
+        else b[sr][sc] = null;
+
+        state.board = b;
+        state.turn = state.turn === "R" ? "B" : "R";
+
+        return state;
+    });
+}
+
+// ---------------- RENDER ----------------
+
+function render(){
+
+    const el = document.getElementById("board");
+    el.innerHTML = "";
+
+    for(let r=0;r<5;r++){
+        for(let c=0;c<5;c++){
+
+            let cell = document.createElement("div");
+            let v = board[r][c];
+
+            cell.className = "cell " + (v ? (v.p==="R"?"red":"blue") : "empty");
+
+            if(v){
+                cell.innerHTML = v.p + v.h +
+                    `<div class='height'>${v.h}</div>`;
+            }
+
+            cell.onclick = () => {
+
+                if(turn !== me) return;
+
+                if(!selected){
+                    if(board[r][c]?.p === me) selected = {r,c};
+                } else {
+                    move(selected.r,selected.c,r,c);
+                    selected = null;
+                }
+            };
+
+            el.appendChild(cell);
+        }
+    }
+
+    document.getElementById("status").innerText = "Turn: " + turn;
+    document.getElementById("player").innerText = "You: " + me;
+}
+
+// ---------------- UTIL ----------------
+
+function copyLink(){
+    navigator.clipboard.writeText(location.href);
+    alert("Copied invite link");
+}
+
+joinRoom();
+
 </script>
 </body>
 </html>
