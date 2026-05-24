@@ -110,6 +110,8 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
+// ---------------- ROOM ----------------
+
 let roomId = new URLSearchParams(location.search).get("room");
 if (!roomId) {
     roomId = Math.random().toString(36).substring(2, 8).toUpperCase();
@@ -118,58 +120,48 @@ if (!roomId) {
 
 document.getElementById("room").innerText = "Room: " + roomId;
 
-let ref = db.ref("rooms/" + roomId);
+const ref = db.ref("rooms/" + roomId);
+
+// ---------------- STATE ----------------
 
 let board = [];
 let turn = "R";
 let me = null;
 let selected = null;
-let initialized = false;
 
-// ---------------- ROOM JOIN LOGIC ----------------
+// ---------------- JOIN (ATOMIC FIX) ----------------
 
-async function joinRoom() {
-    const snap = await ref.get();
+function joinRoom() {
 
-    if (!snap.exists()) {
-        // FIRST PLAYER = HOST
-        me = "R";
+    ref.transaction(current => {
 
-        board = createBoard();
+        // CREATE ROOM (FIRST PLAYER = HOST)
+        if (!current) {
+            me = "R";
 
-        await ref.set({
-            board,
-            turn,
-            players: { R: true, B: false }
-        });
+            return {
+                board: createBoard(),
+                turn: "R",
+                players: { R: true, B: false },
+                version: 0
+            };
+        }
 
-        log("You are RED (host)", true);
-        initialized = true;
-
-    } else {
-        const data = snap.val();
-
-        if (!data.players.B) {
+        // JOIN SECOND PLAYER
+        if (!current.players?.B) {
             me = "B";
-
-            await ref.update({
-                "players/B": true
-            });
-
-            log("You are BLUE (guest)", true);
-            initialized = true;
-
+            current.players.B = true;
         } else {
             me = "spectator";
-            log("Room full", true);
-            return;
         }
-    }
+
+        return current;
+    });
 
     listen();
 }
 
-// ---------------- SYNC ----------------
+// ---------------- LISTENER ----------------
 
 function listen() {
     ref.on("value", snap => {
@@ -197,15 +189,15 @@ function createBoard() {
     return b;
 }
 
-// ---------------- MOVE ----------------
+// ---------------- VALIDATION ----------------
 
 function valid(sr,sc,er,ec){
-    let a = board[sr][sc];
+    const a = board[sr][sc];
     if(!a) return false;
 
-    let dr = Math.abs(er-sr);
-    let dc = Math.abs(ec-sc);
-    let M = Math.max(dr,dc);
+    const dr = Math.abs(er-sr);
+    const dc = Math.abs(ec-sc);
+    const M = Math.max(dr,dc);
 
     if(M === 0) return false;
     if(M > a.h) return false;
@@ -214,31 +206,31 @@ function valid(sr,sc,er,ec){
     return true;
 }
 
-async function move(sr,sc,er,ec){
+// ---------------- MOVE (SAFE TRANSACTION) ----------------
+
+function move(sr,sc,er,ec){
 
     if(turn !== me) return;
+    if(!valid(sr,sc,er,ec)) return;
 
-    if(!valid(sr,sc,er,ec)) {
-        log("Invalid move");
-        return;
-    }
-
-    await ref.transaction(state => {
+    ref.transaction(state => {
 
         if(!state) return state;
         if(state.turn !== me) return state;
 
+        if(!state.players?.[me]) return state;
+
         let b = state.board;
 
-        let a = b[sr][sc];
-        let t = b[er][ec];
+        const a = b[sr][sc];
+        const t = b[er][ec];
 
-        let M = Math.max(Math.abs(er-sr), Math.abs(ec-sc));
+        const M = Math.max(Math.abs(er-sr), Math.abs(ec-sc));
 
         if(t && t.p !== a.p){
-            b[er][ec] = {p:a.p,h:a.h};
+            b[er][ec] = {p:a.p, h:a.h};
         } else {
-            b[er][ec] = {p:a.p,h:a.h + (t?t.h:0)};
+            b[er][ec] = {p:a.p, h:a.h + (t ? t.h : 0)};
         }
 
         if(a.h - M > 0) b[sr][sc].h -= M;
@@ -254,11 +246,13 @@ async function move(sr,sc,er,ec){
 // ---------------- UI ----------------
 
 function render(){
-    let el = document.getElementById("board");
+
+    const el = document.getElementById("board");
     el.innerHTML = "";
 
     for(let r=0;r<5;r++){
         for(let c=0;c<5;c++){
+
             let cell = document.createElement("div");
             let v = board[r][c];
 
@@ -270,12 +264,13 @@ function render(){
             }
 
             cell.onclick = () => {
+
                 if(turn !== me) return;
 
                 if(!selected){
                     if(board[r][c]?.p === me) selected = {r,c};
                 } else {
-                    move(selected.r,selected.c,r,c);
+                    move(selected.r, selected.c, r, c);
                     selected = null;
                 }
             };
@@ -284,24 +279,18 @@ function render(){
         }
     }
 
-    document.getElementById("status").innerText =
-        `Turn: ${turn}`;
-    document.getElementById("player").innerText =
-        `You: ${me}`;
+    document.getElementById("status").innerText = `Turn: ${turn}`;
+    document.getElementById("player").innerText = `You: ${me}`;
 }
 
 // ---------------- UTIL ----------------
 
-function log(m){
-    let d=document.createElement("div");
-    d.textContent="> "+m;
-    document.getElementById("log").appendChild(d);
+function copyLink(){
+    navigator.clipboard.writeText(location.href);
+    alert("Copied room link");
 }
 
-window.copyLink = ()=>{
-    navigator.clipboard.writeText(location.href);
-    alert("Copied");
-};
+// ---------------- START ----------------
 
 joinRoom();
 
