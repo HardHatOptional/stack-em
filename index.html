@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Stack 'Em (Multiplayer Stable)</title>
+<title>Stack 'Em Multiplayer</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <style>
@@ -45,9 +45,6 @@ h1 { color: #60a5fa; }
 .blue { background: #1d4ed8; }
 .empty { background: #334155; }
 
-.valid { box-shadow: 0 0 0 4px #4ade80 inset; }
-.selected { box-shadow: 0 0 0 4px #fde047 inset; }
-
 .height {
     position: absolute;
     top: 6px;
@@ -84,26 +81,21 @@ button {
 <body>
 
 <h1>STACK 'EM</h1>
+
+<p id="room"></p>
+<p id="player"></p>
 <p id="status"></p>
 
 <div id="board" class="board"></div>
 
 <button onclick="copyLink()">Share Link</button>
-<button onclick="newGameHost()">New Game (Host only)</button>
 
 <div id="log"></div>
 
-<script type="module">
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
 
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import {
-    getDatabase,
-    ref,
-    set,
-    onValue,
-    runTransaction,
-    get
-} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+<script>
 
 const firebaseConfig = {
     apiKey: "AIzaSyBSHHztyiMchOW0bH-QicF10ze6yZvPoVk",
@@ -115,52 +107,74 @@ const firebaseConfig = {
     appId: "1:1002747782009:web:220d4ae677e5f32cff45a8"
 };
 
-const app = initializeApp(firebaseConfig);
-const db = getDatabase(app);
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
 
-let roomId = new URLSearchParams(window.location.search).get("room");
+let roomId = new URLSearchParams(location.search).get("room");
 if (!roomId) {
     roomId = Math.random().toString(36).substring(2, 8).toUpperCase();
-    window.history.replaceState({}, "", "?room=" + roomId);
+    history.replaceState({}, "", "?room=" + roomId);
 }
 
-const roomRef = ref(db, "rooms/" + roomId);
+document.getElementById("room").innerText = "Room: " + roomId;
 
-let player = null;   // R or B
+let ref = db.ref("rooms/" + roomId);
+
 let board = [];
 let turn = "R";
+let me = null;
 let selected = null;
-let lastVersion = -1;
+let initialized = false;
 
-// ---------- INIT ----------
-async function init() {
-    const snap = await get(roomRef);
+// ---------------- ROOM JOIN LOGIC ----------------
+
+async function joinRoom() {
+    const snap = await ref.get();
 
     if (!snap.exists()) {
-        player = "R";
-        createBoard();
-        pushState();
+        // FIRST PLAYER = HOST
+        me = "R";
+
+        board = createBoard();
+
+        await ref.set({
+            board,
+            turn,
+            players: { R: true, B: false }
+        });
+
+        log("You are RED (host)", true);
+        initialized = true;
+
     } else {
         const data = snap.val();
 
-        player = data.playerB ? "spectator" : "B";
+        if (!data.players.B) {
+            me = "B";
 
-        if (player === "B") {
-            set(ref(db, `rooms/${roomId}/playerB`), true);
+            await ref.update({
+                "players/B": true
+            });
+
+            log("You are BLUE (guest)", true);
+            initialized = true;
+
+        } else {
+            me = "spectator";
+            log("Room full", true);
+            return;
         }
     }
 
     listen();
 }
 
+// ---------------- SYNC ----------------
+
 function listen() {
-    onValue(roomRef, snap => {
+    ref.on("value", snap => {
         const data = snap.val();
         if (!data) return;
-
-        // stale update protection
-        if (data.version <= lastVersion) return;
-        lastVersion = data.version;
 
         board = data.board;
         turn = data.turn;
@@ -169,70 +183,53 @@ function listen() {
     });
 }
 
-// ---------- GAME SETUP ----------
+// ---------------- BOARD ----------------
+
 function createBoard() {
-    board = Array(5).fill().map(() => Array(5).fill(null));
+    let b = Array(5).fill().map(() => Array(5).fill(null));
 
     let reds = [[4,0],[4,1],[4,2],[3,0],[3,1]];
     let blues = [[0,1],[0,2],[0,3],[1,0],[1,2]];
 
-    shuffle(reds);
-    shuffle(blues);
+    reds.forEach((p,i)=> b[p[0]][p[1]] = {p:"R",h:1+(i%3)});
+    blues.forEach((p,i)=> b[p[0]][p[1]] = {p:"B",h:1+(i%3)});
 
-    reds.forEach((p,i)=> board[p[0]][p[1]] = {p:"R",h:1+(i%3)});
-    blues.forEach((p,i)=> board[p[0]][p[1]] = {p:"B",h:1+(i%3)});
+    return b;
 }
 
-function shuffle(a){
-    for(let i=a.length-1;i>0;i--){
-        let j=Math.floor(Math.random()*(i+1));
-        [a[i],a[j]]=[a[j],a[i]];
-    }
-}
+// ---------------- MOVE ----------------
 
-// ---------- SYNC ----------
-function pushState() {
-    runTransaction(roomRef, (current) => {
-        return {
-            board,
-            turn,
-            version: (current?.version || 0) + 1
-        };
-    });
-}
-
-// ---------- MOVE VALIDATION ----------
 function valid(sr,sc,er,ec){
-    if(!board[sr][sc]) return false;
-    let p = board[sr][sc];
+    let a = board[sr][sc];
+    if(!a) return false;
+
     let dr = Math.abs(er-sr);
     let dc = Math.abs(ec-sc);
     let M = Math.max(dr,dc);
 
     if(M === 0) return false;
-    if(M > p.h) return false;
+    if(M > a.h) return false;
     if(M > 1 && dr !== 0 && dc !== 0) return false;
 
     return true;
 }
 
-// ---------- MOVE ----------
-function move(sr,sc,er,ec){
+async function move(sr,sc,er,ec){
 
-    if(turn !== player) return;
+    if(turn !== me) return;
 
     if(!valid(sr,sc,er,ec)) {
         log("Invalid move");
         return;
     }
 
-    runTransaction(roomRef, (state) => {
+    await ref.transaction(state => {
 
         if(!state) return state;
-
-        if(state.turn !== player) return state;
+        if(state.turn !== me) return state;
 
         let b = state.board;
+
         let a = b[sr][sc];
         let t = b[er][ec];
 
@@ -249,35 +246,37 @@ function move(sr,sc,er,ec){
 
         state.board = b;
         state.turn = state.turn === "R" ? "B" : "R";
-        state.version = (state.version || 0) + 1;
 
         return state;
     });
 }
 
-// ---------- UI ----------
+// ---------------- UI ----------------
+
 function render(){
-    const el = document.getElementById("board");
-    el.innerHTML="";
+    let el = document.getElementById("board");
+    el.innerHTML = "";
 
     for(let r=0;r<5;r++){
         for(let c=0;c<5;c++){
-            let cell=document.createElement("div");
-            let v=board[r][c];
+            let cell = document.createElement("div");
+            let v = board[r][c];
 
-            cell.className="cell " + (v?v.p==="R"?"red":"blue":"empty");
+            cell.className = "cell " + (v ? (v.p==="R"?"red":"blue") : "empty");
 
             if(v){
-                cell.innerHTML=v.p+v.h+
-                `<div class='height'>${v.h}</div>`;
+                cell.innerHTML = v.p + v.h +
+                    `<div class='height'>${v.h}</div>`;
             }
 
-            cell.onclick=()=>{
+            cell.onclick = () => {
+                if(turn !== me) return;
+
                 if(!selected){
-                    if(board[r][c]?.p===turn) selected={r,c};
+                    if(board[r][c]?.p === me) selected = {r,c};
                 } else {
                     move(selected.r,selected.c,r,c);
-                    selected=null;
+                    selected = null;
                 }
             };
 
@@ -286,28 +285,25 @@ function render(){
     }
 
     document.getElementById("status").innerText =
-        `You: ${player} | Turn: ${turn}`;
+        `Turn: ${turn}`;
+    document.getElementById("player").innerText =
+        `You: ${me}`;
 }
 
-// ---------- UTIL ----------
-function log(msg){
+// ---------------- UTIL ----------------
+
+function log(m){
     let d=document.createElement("div");
-    d.textContent="> "+msg;
+    d.textContent="> "+m;
     document.getElementById("log").appendChild(d);
 }
 
 window.copyLink = ()=>{
-    navigator.clipboard.writeText(window.location.href);
+    navigator.clipboard.writeText(location.href);
     alert("Copied");
 };
 
-window.newGameHost = ()=>{
-    if(player!=="R") return;
-    createBoard();
-    pushState();
-};
-
-init();
+joinRoom();
 
 </script>
 </body>
