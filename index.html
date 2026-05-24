@@ -2,85 +2,87 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Stack 'Em Multiplayer</title>
+<title>Stack 'Em Multiplayer v2</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <style>
 body {
-    font-family: Arial, sans-serif;
-    background: #0f172a;
-    color: white;
-    text-align: center;
-    margin: 0;
-    padding: 20px;
+    font-family: Arial;
+    background:#0f172a;
+    color:white;
+    text-align:center;
+    margin:0;
+    padding:20px;
 }
 
-h1 { color: #60a5fa; }
-
 .board {
-    display: grid;
-    grid-template-columns: repeat(5, 74px);
-    gap: 6px;
-    width: 400px;
-    margin: 20px auto;
-    background: #1e2937;
-    padding: 15px;
-    border-radius: 12px;
+    display:grid;
+    grid-template-columns:repeat(5,74px);
+    gap:6px;
+    width:400px;
+    margin:20px auto;
+    background:#1e2937;
+    padding:15px;
+    border-radius:12px;
 }
 
 .cell {
-    width: 74px;
-    height: 74px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 26px;
-    font-weight: bold;
-    border-radius: 10px;
-    cursor: pointer;
-    position: relative;
+    width:74px;
+    height:74px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:24px;
+    font-weight:bold;
+    border-radius:10px;
+    cursor:pointer;
+    position:relative;
 }
 
-.red { background: #b91c1c; }
-.blue { background: #1d4ed8; }
-.empty { background: #334155; }
+.red { background:#b91c1c; }
+.blue { background:#1d4ed8; }
+.empty { background:#334155; }
 
 .height {
-    position: absolute;
-    top: 6px;
-    right: 8px;
-    font-size: 14px;
-    background: rgba(0,0,0,0.5);
-    padding: 2px 5px;
-    border-radius: 6px;
+    position:absolute;
+    top:6px;
+    right:8px;
+    font-size:12px;
+    background:rgba(0,0,0,0.5);
+    padding:2px 5px;
+    border-radius:6px;
 }
 
 button {
-    padding: 10px 18px;
-    margin: 8px;
-    border-radius: 8px;
-    border: none;
-    background: #334155;
-    color: white;
-    cursor: pointer;
+    padding:10px 14px;
+    margin:6px;
+    border-radius:8px;
+    border:none;
+    background:#334155;
+    color:white;
+    cursor:pointer;
 }
 
 #log {
-    max-width: 420px;
-    margin: 10px auto;
-    text-align: left;
-    background: #1e2937;
-    padding: 10px;
-    border-radius: 8px;
-    max-height: 180px;
-    overflow-y: auto;
+    max-width:420px;
+    margin:auto;
+    text-align:left;
+    background:#1e2937;
+    padding:10px;
+    border-radius:8px;
+    max-height:160px;
+    overflow-y:auto;
 }
 </style>
 </head>
 
 <body>
 
-<h1>STACK 'EM</h1>
+<h1>STACK 'EM v2</h1>
+
+<div id="menu">
+    <button onclick="createRoom()">Create Room (Host)</button>
+</div>
 
 <p id="room"></p>
 <p id="player"></p>
@@ -88,7 +90,7 @@ button {
 
 <div id="board" class="board"></div>
 
-<button onclick="copyLink()">Share Link</button>
+<button onclick="copyLink()">Copy Invite Link</button>
 
 <div id="log"></div>
 
@@ -102,66 +104,75 @@ const firebaseConfig = {
     authDomain: "stacks-77d0c.firebaseapp.com",
     databaseURL: "https://stacks-77d0c-default-rtdb.firebaseio.com",
     projectId: "stacks-77d0c",
-    storageBucket: "stacks-77d0c.firebasestorage.app",
-    messagingSenderId: "1002747782009",
-    appId: "1:1002747782009:web:220d4ae677e5f32cff45a8"
 };
 
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
-// ---------------- ROOM ----------------
-
 let roomId = new URLSearchParams(location.search).get("room");
-if (!roomId) {
-    roomId = Math.random().toString(36).substring(2, 8).toUpperCase();
-    history.replaceState({}, "", "?room=" + roomId);
-}
-
-document.getElementById("room").innerText = "Room: " + roomId;
-
-const ref = db.ref("rooms/" + roomId);
-
-// ---------------- STATE ----------------
+let ref = null;
 
 let board = [];
 let turn = "R";
 let me = null;
 let selected = null;
 
-// ---------------- JOIN (ATOMIC FIX) ----------------
+// ---------------- ROOM CREATION (HOST ONLY) ----------------
 
-function joinRoom() {
+function createRoom() {
+    roomId = Math.random().toString(36).substring(2,8).toUpperCase();
 
-    ref.transaction(current => {
+    history.replaceState({}, "", "?room=" + roomId);
 
-        // CREATE ROOM (FIRST PLAYER = HOST)
-        if (!current) {
-            me = "R";
+    ref = db.ref("rooms/" + roomId);
 
-            return {
-                board: createBoard(),
-                turn: "R",
-                players: { R: true, B: false },
-                version: 0
-            };
-        }
+    me = "R";
 
-        // JOIN SECOND PLAYER
-        if (!current.players?.B) {
-            me = "B";
-            current.players.B = true;
-        } else {
-            me = "spectator";
-        }
-
-        return current;
+    ref.set({
+        board: createBoard(),
+        turn: "R",
+        players: { R: true, B: false }
     });
+
+    document.getElementById("menu").style.display = "none";
+    document.getElementById("room").innerText = "Room: " + roomId;
+    document.getElementById("player").innerText = "You: RED (Host)";
 
     listen();
 }
 
-// ---------------- LISTENER ----------------
+// ---------------- JOIN ROOM (GUEST ONLY) ----------------
+
+function joinRoom() {
+
+    if (!roomId) {
+        document.body.innerHTML = "<h2>Missing room link</h2>";
+        return;
+    }
+
+    ref = db.ref("rooms/" + roomId);
+
+    ref.transaction(state => {
+
+        if (!state) return state;
+
+        if (!state.players.B) {
+            state.players.B = true;
+            me = "B";
+        } else {
+            me = "spectator";
+        }
+
+        return state;
+    });
+
+    document.getElementById("menu").style.display = "none";
+    document.getElementById("room").innerText = "Room: " + roomId;
+
+    listen();
+}
+
+// ---------------- SYNC ----------------
 
 function listen() {
     ref.on("value", snap => {
@@ -178,26 +189,26 @@ function listen() {
 // ---------------- BOARD ----------------
 
 function createBoard() {
-    let b = Array(5).fill().map(() => Array(5).fill(null));
+    let b = Array(5).fill().map(()=>Array(5).fill(null));
 
     let reds = [[4,0],[4,1],[4,2],[3,0],[3,1]];
     let blues = [[0,1],[0,2],[0,3],[1,0],[1,2]];
 
-    reds.forEach((p,i)=> b[p[0]][p[1]] = {p:"R",h:1+(i%3)});
-    blues.forEach((p,i)=> b[p[0]][p[1]] = {p:"B",h:1+(i%3)});
+    reds.forEach((p,i)=>b[p[0]][p[1]]={p:"R",h:1+(i%3)});
+    blues.forEach((p,i)=>b[p[0]][p[1]]={p:"B",h:1+(i%3)});
 
     return b;
 }
 
-// ---------------- VALIDATION ----------------
+// ---------------- MOVE RULES ----------------
 
 function valid(sr,sc,er,ec){
-    const a = board[sr][sc];
+    let a = board[sr][sc];
     if(!a) return false;
 
-    const dr = Math.abs(er-sr);
-    const dc = Math.abs(ec-sc);
-    const M = Math.max(dr,dc);
+    let dr = Math.abs(er-sr);
+    let dc = Math.abs(ec-sc);
+    let M = Math.max(dr,dc);
 
     if(M === 0) return false;
     if(M > a.h) return false;
@@ -206,26 +217,25 @@ function valid(sr,sc,er,ec){
     return true;
 }
 
-// ---------------- MOVE (SAFE TRANSACTION) ----------------
+// ---------------- MOVE (SAFE + LOCKED) ----------------
 
 function move(sr,sc,er,ec){
 
-    if(turn !== me) return;
+    if(me !== turn) return;
     if(!valid(sr,sc,er,ec)) return;
 
     ref.transaction(state => {
 
         if(!state) return state;
         if(state.turn !== me) return state;
-
         if(!state.players?.[me]) return state;
 
         let b = state.board;
 
-        const a = b[sr][sc];
-        const t = b[er][ec];
+        let a = b[sr][sc];
+        let t = b[er][ec];
 
-        const M = Math.max(Math.abs(er-sr), Math.abs(ec-sc));
+        let M = Math.max(Math.abs(er-sr), Math.abs(ec-sc));
 
         if(t && t.p !== a.p){
             b[er][ec] = {p:a.p, h:a.h};
@@ -270,7 +280,7 @@ function render(){
                 if(!selected){
                     if(board[r][c]?.p === me) selected = {r,c};
                 } else {
-                    move(selected.r, selected.c, r, c);
+                    move(selected.r,selected.c,r,c);
                     selected = null;
                 }
             };
@@ -279,21 +289,21 @@ function render(){
         }
     }
 
-    document.getElementById("status").innerText = `Turn: ${turn}`;
-    document.getElementById("player").innerText = `You: ${me}`;
+    document.getElementById("status").innerText = "Turn: " + turn;
 }
 
 // ---------------- UTIL ----------------
 
 function copyLink(){
     navigator.clipboard.writeText(location.href);
-    alert("Copied room link");
+    alert("Invite copied");
 }
 
-// ---------------- START ----------------
+// ---------------- BOOT ----------------
 
-joinRoom();
+if (roomId) joinRoom();
 
 </script>
+
 </body>
 </html>
