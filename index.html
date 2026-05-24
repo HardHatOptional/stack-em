@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Stack 'Em Multiplayer v3</title>
+<title>Stack 'Em Multiplayer</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <style>
@@ -80,7 +80,7 @@ button {
 
 <body>
 
-<h1>STACK 'EM v3</h1>
+<h1>STACK 'EM</h1>
 
 <p id="room"></p>
 <p id="player"></p>
@@ -88,6 +88,7 @@ button {
 
 <div id="board" class="board"></div>
 
+<button onclick="createRoom()">Create Room</button>
 <button onclick="copyLink()">Copy Invite</button>
 
 <div id="log"></div>
@@ -107,39 +108,58 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
-let roomId = new URLSearchParams(location.search).get("room");
-let ref = db.ref("rooms/" + roomId);
+let roomId = new URLSearchParams(location.search).get("room") || null;
+let ref = null;
 
 let board = [];
 let turn = "R";
 let me = null;
 let selected = null;
 
-// ---------------- ROOM JOIN ----------------
+// ---------------- BOOT ----------------
 
-function joinRoom() {
+if (roomId) {
+    startRoom(roomId);
+} else {
+    document.getElementById("room").innerHTML =
+        "No room yet. Click <b>Create Room</b> to start.";
+}
 
-    if(!roomId){
-        document.body.innerHTML = "Missing room link";
-        return;
-    }
+// ---------------- CREATE ROOM (HOST) ----------------
+
+function createRoom() {
+
+    roomId = Math.random().toString(36).substring(2,8).toUpperCase();
+    history.replaceState({}, "", "?room=" + roomId);
+
+    startRoom(roomId, true);
+}
+
+// ---------------- START ROOM ----------------
+
+function startRoom(id, isHost=false) {
+
+    roomId = id;
+    ref = db.ref("rooms/" + roomId);
+
+    document.getElementById("room").innerText = "Room: " + roomId;
 
     ref.transaction(state => {
 
         if(!state){
+
             me = "R";
+
             return {
                 board: createBoard(),
                 turn: "R",
-                players: {R:true, B:false}
+                players: { R:true, B:false }
             };
         }
 
-        if(!state.players?.B){
+        if(!state.players?.B && !isHost){
             me = "B";
             state.players.B = true;
-        } else {
-            me = "spectator";
         }
 
         return state;
@@ -148,20 +168,14 @@ function joinRoom() {
     listen();
 }
 
-// ---------------- BOARD SETUP (FIXED) ----------------
+// ---------------- BOARD SETUP ----------------
 
 function createBoard() {
 
     let b = Array(5).fill().map(()=>Array(5).fill(null));
 
-    // FULL ACCESS SETUP (NO MIDDLE ROW RESTRICTION)
-    let reds = [
-        [4,0],[4,1],[4,2],[3,0],[3,1]
-    ];
-
-    let blues = [
-        [0,1],[0,2],[0,3],[1,0],[1,2]
-    ];
+    let reds = [[4,0],[4,1],[4,2],[3,0],[3,1]];
+    let blues = [[0,1],[0,2],[0,3],[1,0],[1,2]];
 
     reds.forEach((p,i)=>{
         b[p[0]][p[1]] = {p:"R", h:1+(i%3)};
@@ -178,17 +192,18 @@ function createBoard() {
 
 function listen() {
     ref.on("value", snap => {
+
         const data = snap.val();
         if(!data) return;
 
-        board = data.board;
-        turn = data.turn;
+        board = data.board || [];
+        turn = data.turn || "R";
 
         render();
     });
 }
 
-// ---------------- MOVE RULES (FIXED DIAGONAL LOGIC) ----------------
+// ---------------- MOVE RULES ----------------
 
 function valid(sr,sc,er,ec){
 
@@ -203,17 +218,11 @@ function valid(sr,sc,er,ec){
     if(M === 0) return false;
     if(M > a.h) return false;
 
-    const isDiagonal = dr === 1 && dc === 1;
-    const isStraight = (dr === 0 || dc === 0);
+    const diagonal = dr === 1 && dc === 1;
+    const straight = dr === 0 || dc === 0;
 
-    // 🔥 STRICT RULE: diagonal ONLY if height = 1
-    if(isDiagonal){
-        return a.h === 1;
-    }
-
-    if(isStraight){
-        return true;
-    }
+    if(diagonal) return a.h === 1;
+    if(straight) return true;
 
     return false;
 }
@@ -264,7 +273,7 @@ function render(){
         for(let c=0;c<5;c++){
 
             let cell = document.createElement("div");
-            let v = board[r][c];
+            let v = board[r]?.[c];
 
             cell.className = "cell " + (v ? (v.p==="R"?"red":"blue") : "empty");
 
@@ -289,19 +298,21 @@ function render(){
         }
     }
 
-    document.getElementById("status").innerText = "Turn: " + turn;
-    document.getElementById("player").innerText = "You: " + me;
+    document.getElementById("status").innerText =
+        "Turn: " + turn;
+
+    document.getElementById("player").innerText =
+        "You: " + me;
 }
 
 // ---------------- UTIL ----------------
 
 function copyLink(){
     navigator.clipboard.writeText(location.href);
-    alert("Copied invite link");
+    alert("Invite copied");
 }
 
-joinRoom();
-
 </script>
+
 </body>
 </html>
