@@ -4,22 +4,15 @@
 <meta charset="UTF-8">
 <title>Stack 'Em</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
 <style>
-    body {
-        font-family: Arial, sans-serif;
-        background: #0f172a;
-        color: white;
-        text-align: center;
-        margin: 0;
-        padding: 20px;
+    body { 
+        font-family: Arial, sans-serif; 
+        background: #0f172a; 
+        color: white; 
+        text-align: center; 
+        margin: 0; padding: 20px;
     }
-
-    h1 {
-        color: #60a5fa;
-        margin: 10px 0;
-    }
-
+    h1 { color: #60a5fa; }
     .board {
         display: grid;
         grid-template-columns: repeat(5, 74px);
@@ -30,7 +23,6 @@
         padding: 15px;
         border-radius: 12px;
     }
-
     .cell {
         width: 74px;
         height: 74px;
@@ -42,103 +34,49 @@
         border-radius: 10px;
         cursor: pointer;
         position: relative;
-        user-select: none;
+        transition: all 0.2s;
     }
-
-    .red {
-        background: #b91c1c;
-        color: #fee2e2;
-    }
-
-    .blue {
-        background: #1d4ed8;
-        color: #dbeafe;
-    }
-
-    .empty {
-        background: #334155;
-    }
-
-    .selected {
-        box-shadow: 0 0 0 6px #fde047 inset;
-    }
-
-    .valid {
-        box-shadow: 0 0 0 6px #4ade80 inset;
-    }
-
+    .red { background: #b91c1c; color: #fee2e2; }
+    .blue { background: #1d4ed8; color: #dbeafe; }
+    .empty { background: #334155; }
+    .selected { box-shadow: 0 0 0 6px #fde047 inset; }
+    .valid { box-shadow: 0 0 0 6px #4ade80 inset; }
     .height-label {
-        position: absolute;
-        top: 6px;
-        right: 8px;
-        font-size: 16px;
-        background: rgba(0,0,0,0.5);
-        padding: 2px 6px;
-        border-radius: 50%;
+        position: absolute; top: 6px; right: 8px;
+        font-size: 16px; background: rgba(0,0,0,0.5);
+        padding: 2px 6px; border-radius: 50%;
     }
-
-    button {
-        padding: 12px 24px;
-        font-size: 1.05em;
-        background: #334155;
-        color: white;
-        border: none;
-        border-radius: 8px;
-        cursor: pointer;
-        margin: 10px;
+    button { 
+        padding: 12px 24px; margin: 8px; font-size: 1.1em; 
+        background: #334155; color: white; border: none; 
+        border-radius: 8px; cursor: pointer; 
     }
-
-    #log {
-        max-width: 420px;
-        margin: 20px auto;
-        text-align: left;
-        background: #1e2937;
-        padding: 12px;
-        border-radius: 8px;
-        max-height: 200px;
-        overflow-y: auto;
-    }
-
-    @media (max-width: 500px) {
-        .board {
-            width: 100%;
-            grid-template-columns: repeat(5, 1fr);
-        }
-
-        .cell {
-            width: 100%;
-            aspect-ratio: 1/1;
-            font-size: 22px;
-        }
+    #log { 
+        max-width: 420px; margin: 20px auto; text-align:left; 
+        background:#1e2937; padding:12px; border-radius:8px; 
+        max-height:220px; overflow-y:auto; 
     }
 </style>
 </head>
-
 <body>
+    <h1>STACK 'EM</h1>
+    <p id="room-info" style="font-size:1.2em;"></p>
+    <p id="player-info" style="font-size:1.2em;"></p>
+    <p id="status" style="font-size:1.3em;"></p>
+    
+    <div id="board" class="board"></div>
+    
+    <button onclick="newGame()">New Game</button>
+    <button onclick="copyLink()">Share Link</button>
 
-<h1>STACK 'EM</h1>
+    <div id="log"></div>
 
-<p id="status" style="font-size:1.2em;"></p>
+<!-- Firebase -->
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
 
-<div id="board" class="board"></div>
-
-<button onclick="newGame()">New Game</button>
-<button onclick="copyLink()">Share Link</button>
-
-<div id="log"></div>
-
-<script type="module">
-
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-
-import {
-    getDatabase,
-    ref,
-    set,
-    onValue,
-    get
-} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
-
+<script>
+// ================== YOUR FIREBASE CONFIG ==================
 const firebaseConfig = {
     apiKey: "AIzaSyBSHHztyiMchOW0bH-QicF10ze6yZvPoVk",
     authDomain: "stacks-77d0c.firebaseapp.com",
@@ -149,416 +87,217 @@ const firebaseConfig = {
     appId: "1:1002747782009:web:220d4ae677e5f32cff45a8"
 };
 
-const app = initializeApp(firebaseConfig);
-const db = getDatabase(app);
+const app = firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
 
-let roomId = new URLSearchParams(window.location.search).get("room");
-
-if (!roomId) {
-    roomId = Math.random().toString(36).substring(2, 8).toUpperCase();
-    window.history.replaceState({}, "", "?room=" + roomId);
-}
-
-let playerColor = null;
-
+// Game State
 let board = [];
 let currentPlayer = 'R';
-let graveyards = { 'R': 0, 'B': 0 };
+let myPlayer = null;
+let roomCode = '';
+let gameRef = null;
 let selected = null;
 
-const roomRef = ref(db, "rooms/" + roomId);
-
-async function assignPlayer() {
-
-    const snapshot = await get(roomRef);
-
-    if (!snapshot.exists()) {
-
-        playerColor = 'R';
-
-        createFreshBoard();
-
-        syncState();
-
-    } else {
-
-        const data = snapshot.val();
-
-        if (!data.player2Joined) {
-
-            playerColor = 'B';
-
-            await set(ref(db, `rooms/${roomId}/player2Joined`), true);
-
-        } else {
-
-            alert("Room full.");
-
-        }
-    }
-
-    log(`You are ${playerColor === 'R' ? '🔴 RED' : '🔵 BLUE'}`, true);
-}
-
-function syncState() {
-
-    set(roomRef, {
-        board,
-        currentPlayer,
-        graveyards,
-        player2Joined: true
-    });
-}
-
-onValue(roomRef, (snapshot) => {
-
-    const data = snapshot.val();
-
-    if (!data) return;
-
-    board = data.board;
-    currentPlayer = data.currentPlayer;
-    graveyards = data.graveyards;
-
-    render();
-});
-
 function shuffle(arr) {
-
-    for (let i = arr.length - 1; i > 0; i--) {
-
-        let j = Math.floor(Math.random() * (i + 1));
-
+    for (let i = arr.length-1; i > 0; i--) {
+        let j = Math.floor(Math.random() * (i+1));
         [arr[i], arr[j]] = [arr[j], arr[i]];
     }
 }
 
-function createFreshBoard() {
+function getRoomCode() {
+    const params = new URLSearchParams(window.location.search);
+    roomCode = params.get('room') || Math.random().toString(36).substring(2,8).toUpperCase();
+    if (!params.get('room')) {
+        window.history.replaceState({}, '', `?room=${roomCode}`);
+    }
+    document.getElementById('room-info').textContent = `Room: ${roomCode}`;
+    return roomCode;
+}
 
-    board = Array(5).fill().map(() => Array(5).fill(null));
+function newGame() {
+    roomCode = getRoomCode();
+    gameRef = db.ref('games/' + roomCode);
 
-    graveyards = { 'R': 0, 'B': 0 };
+    if (!myPlayer) myPlayer = Math.random() > 0.5 ? 'R' : 'B';
 
-    currentPlayer = 'R';
+    const initialData = {
+        board: createInitialBoard(),
+        currentPlayer: 'R',
+        graveyards: { 'R': 0, 'B': 0 }
+    };
 
-    selected = null;
+    gameRef.set(initialData).then(() => {
+        log("🎮 New game created and synced!", true);
+        listenToGame();
+    });
+}
 
-    let redPos = [
-        [4,0],[4,1],[4,2],[4,3],
-        [3,0],[3,1],[3,2],[2,1]
-    ];
-
+function createInitialBoard() {
+    let b = Array(5).fill().map(() => Array(5).fill(null));
+    
+    // Red
+    let redPos = [[4,0],[4,1],[4,2],[4,3],[3,0],[3,1],[3,2],[2,1]];
     const redHeights = [3,2,1,1,1];
-
     shuffle(redPos);
-
     for (let i = 0; i < 5; i++) {
-
         let [r,c] = redPos[i];
-
-        board[r][c] = {
-            p: 'R',
-            h: redHeights[i % 5]
-        };
+        b[r][c] = {p: 'R', h: redHeights[i % 5]};
     }
-
-    let bluePos = [
-        [0,1],[0,2],[0,3],
-        [1,0],[1,2],[1,4],[0,4]
-    ];
-
+    
+    // Blue
+    let bluePos = [[0,1],[0,2],[0,3],[1,0],[1,2],[1,4],[0,4]];
     shuffle(bluePos);
-
     for (let i = 0; i < 5; i++) {
-
         let [r,c] = bluePos[i];
-
         let h = [1,1,2,2,3][Math.floor(Math.random()*5)];
-
-        board[r][c] = {
-            p: 'B',
-            h: h
-        };
+        b[r][c] = {p: 'B', h: h};
     }
+    return b;
+}
 
-    document.getElementById('log').innerHTML = '';
+function listenToGame() {
+    gameRef.on('value', (snapshot) => {
+        const data = snapshot.val();
+        if (!data) return;
+
+        board = data.board || board;
+        currentPlayer = data.currentPlayer || currentPlayer;
+        
+        render();
+    });
 }
 
 function render() {
-
     const boardEl = document.getElementById('board');
-
     boardEl.innerHTML = '';
 
     for (let r = 0; r < 5; r++) {
-
         for (let c = 0; c < 5; c++) {
-
             const cell = document.createElement('div');
-
-            const stack = board[r][c];
-
-            cell.className =
-                `cell ${stack ? (stack.p === 'R' ? 'red' : 'blue') : 'empty'}`;
-
+            const stack = board[r] ? board[r][c] : null;
+            
+            cell.className = `cell ${stack ? (stack.p === 'R' ? 'red' : 'blue') : 'empty'}`;
             cell.dataset.r = r;
             cell.dataset.c = c;
 
             if (stack) {
-
-                cell.innerHTML =
-                    `${stack.p}${stack.h}<span class="height-label">${stack.h}</span>`;
+                cell.innerHTML = `${stack.p}${stack.h}<span class="height-label">${stack.h}</span>`;
             }
 
             cell.onclick = () => handleClick(r, c);
-
             boardEl.appendChild(cell);
         }
     }
 
-    const color =
-        currentPlayer === 'R'
-            ? '#fca5a5'
-            : '#93c5fd';
+    document.getElementById('status').innerHTML = 
+        `Current Turn: <strong style="color:${currentPlayer === 'R' ? '#fca5a5' : '#93c5fd'}">
+        ${currentPlayer === 'R' ? '🔴 RED' : '🔵 BLUE'}</strong>`;
 
-    document.getElementById('status').innerHTML = `
-        Room: <strong>${roomId}</strong><br>
-        You Are:
-        <strong>
-        ${playerColor === 'R' ? '🔴 RED' : '🔵 BLUE'}
-        </strong><br>
-        Current Turn:
-        <strong style="color:${color}">
-        ${currentPlayer === 'R' ? '🔴 RED' : '🔵 BLUE'}
-        </strong>
-    `;
+    document.getElementById('player-info').innerHTML = 
+        `You Are: <strong style="color:${myPlayer === 'R' ? '#fca5a5' : '#93c5fd'}">
+        ${myPlayer === 'R' ? '🔴 RED' : '🔵 BLUE'}</strong>`;
 }
 
 function handleClick(r, c) {
-
-    if (currentPlayer !== playerColor) {
+    if (currentPlayer !== myPlayer) {
+        log("❌ Not your turn!", true);
         return;
     }
 
     if (selected) {
-
         attemptMove(selected.r, selected.c, r, c);
-
         selected = null;
-
         clearHighlights();
-
-    } else if (
-        board[r][c] &&
-        board[r][c].p === currentPlayer
-    ) {
-
+    } else if (board[r][c] && board[r][c].p === myPlayer) {
         selected = {r, c};
-
         highlightValidMoves(r, c);
     }
 }
 
 function clearHighlights() {
-
-    document
-        .querySelectorAll('.cell')
-        .forEach(cell => {
-
-            cell.classList.remove('selected', 'valid');
-        });
+    document.querySelectorAll('.cell').forEach(cell => cell.classList.remove('selected', 'valid'));
 }
 
 function highlightValidMoves(sr, sc) {
-
-    document
-        .querySelectorAll('.cell')
-        .forEach(cell => {
-
-            const r = parseInt(cell.dataset.r);
-
-            const c = parseInt(cell.dataset.c);
-
-            if (isValidMove(sr, sc, r, c)) {
-
-                cell.classList.add('valid');
-            }
-        });
-
-    document
-        .querySelector(`.cell[data-r="${sr}"][data-c="${sc}"]`)
-        .classList.add('selected');
+    document.querySelectorAll('.cell').forEach(cell => {
+        const r = parseInt(cell.dataset.r);
+        const c = parseInt(cell.dataset.c);
+        if (isValidMove(sr, sc, r, c)) cell.classList.add('valid');
+    });
+    const sel = document.querySelector(`.cell[data-r="${sr}"][data-c="${sc}"]`);
+    if (sel) sel.classList.add('selected');
 }
 
 function isValidMove(sr, sc, er, ec) {
-
     if (sr === er && sc === ec) return false;
-
     const dr = Math.abs(er - sr);
-
     const dc = Math.abs(ec - sc);
-
     const M = Math.max(dr, dc);
-
     if (M > board[sr][sc].h) return false;
-
     if (M === 1) return true;
-
     return dr === 0 || dc === 0;
 }
 
 function attemptMove(sr, sc, er, ec) {
-
-    if (!isValidMove(sr, sc, er, ec)) {
-
-        return log("❌ Invalid move", true);
-    }
+    if (!isValidMove(sr, sc, er, ec)) return log("❌ Invalid move", true);
 
     const attacker = board[sr][sc];
-
-    const M =
-        Math.max(
-            Math.abs(er - sr),
-            Math.abs(ec - sc)
-        );
-
+    const M = Math.max(Math.abs(er - sr), Math.abs(ec - sc));
     const target = board[er][ec];
 
-    if (
-        target &&
-        target.p !== attacker.p &&
-        M === attacker.h
-    ) {
+    let newBoard = JSON.parse(JSON.stringify(board)); // deep copy
 
+    if (target && target.p !== attacker.p && M === attacker.h) {
+        // Capture
         const D = target.h;
-
-        graveyards[target.p] += D;
-
         let revive = Math.max(0, D - M);
-
         let newH = M;
-
-        if (
-            revive > 0 &&
-            graveyards[attacker.p] >= revive
-        ) {
-
-            graveyards[attacker.p] -= revive;
-
+        if (revive > 0) {
+            // Simplified revive for multiplayer (can be expanded)
             newH += revive;
         }
-
-        board[er][ec] = {
-            p: attacker.p,
-            h: newH
-        };
-
-        log(`⚔️ Capture!`, true);
-
+        newBoard[er][ec] = {p: attacker.p, h: newH};
+        log(`⚔️ CAPTURE! Took ${D}.`, true);
     } else {
-
-        if (
-            target &&
-            target.p !== attacker.p
-        ) {
-
-            return log("❌ Cannot partial attack!", true);
-        }
-
-        const newH =
-            M + (target ? target.h : 0);
-
-        board[er][ec] = {
-            p: attacker.p,
-            h: newH
-        };
+        if (target && target.p !== attacker.p) return log("❌ Cannot partial attack!", true);
+        const newH = M + (target ? target.h : 0);
+        newBoard[er][ec] = {p: attacker.p, h: newH};
+        log(`Moved ${M} coins`, true);
     }
 
+    // Update source
     const remaining = attacker.h - M;
-
     if (remaining > 0) {
-
-        board[sr][sc].h = remaining;
-
+        newBoard[sr][sc].h = remaining;
     } else {
-
-        board[sr][sc] = null;
+        newBoard[sr][sc] = null;
     }
 
-    currentPlayer =
-        currentPlayer === 'R'
-            ? 'B'
-            : 'R';
-
-    syncState();
-
-    render();
-
-    if (checkWin()) {
-
-        alert(
-            `${currentPlayer === 'R' ? 'BLUE' : 'RED'} wins!`
-        );
-    }
+    // Push to Firebase
+    gameRef.update({
+        board: newBoard,
+        currentPlayer: currentPlayer === 'R' ? 'B' : 'R'
+    });
 }
 
-function checkWin() {
-
-    let red = 0;
-
-    let blue = 0;
-
-    board.flat().forEach(s => {
-
-        if (s) {
-
-            s.p === 'R'
-                ? red += s.h
-                : blue += s.h;
-        }
-    });
-
-    return red === 0 || blue === 0;
+function copyLink() {
+    navigator.clipboard.writeText(window.location.href);
+    alert("✅ Link copied! Share with your friend.");
 }
 
 function log(msg, important = false) {
-
     const logEl = document.getElementById('log');
-
     const entry = document.createElement('div');
-
     entry.textContent = `> ${msg}`;
-
-    if (important) {
-
-        entry.style.color = '#facc15';
-    }
-
+    if (important) entry.style.color = '#facc15';
     logEl.appendChild(entry);
-
     logEl.scrollTop = logEl.scrollHeight;
 }
 
-window.copyLink = function () {
-
-    navigator.clipboard.writeText(window.location.href);
-
-    alert("✅ Link copied!");
-};
-
-window.newGame = function () {
-
-    if (playerColor === 'R') {
-
-        createFreshBoard();
-
-        syncState();
-    }
-};
-
-assignPlayer();
-
+// Start Game
+getRoomCode();
+newGame();
 </script>
-
 </body>
 </html>
